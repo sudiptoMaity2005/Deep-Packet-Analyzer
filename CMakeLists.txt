@@ -12,7 +12,11 @@ set(SOURCES
     src/packet_parser.cpp
 )
 
-# Header files location
+# ==========================================
+# Configuration: Include Directories
+# This ensures that our source files can find
+# the headers located in the /include folder.
+# ==========================================
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # Create the executable
