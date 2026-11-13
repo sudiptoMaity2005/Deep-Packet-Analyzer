@@ -1,4 +1,5 @@
 #include "connection_tracker.h"
+#include "security_analyzer.h"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
@@ -16,9 +17,14 @@ ConnectionTracker::ConnectionTracker(int fp_id, size_t max_connections)
 
 Connection* ConnectionTracker::getOrCreateConnection(const FiveTuple& tuple) {
     auto it = connections_.find(tuple);
-    
     if (it != connections_.end()) {
         return &it->second;
+    }
+    
+    // Check reverse tuple for bidirectional flow matching
+    auto rev = connections_.find(tuple.reverse());
+    if (rev != connections_.end()) {
+        return &rev->second;
     }
     
     // Check if we need to evict old connections
@@ -76,6 +82,16 @@ void ConnectionTracker::classifyConnection(Connection* conn, AppType app, const 
         conn->sni = sni;
         conn->state = ConnectionState::CLASSIFIED;
         classified_count_++;
+
+        if (!sni.empty()) {
+            std::string core = SecurityAnalyzer::extractCoreDomain(sni);
+            conn->domain_entropy = SecurityAnalyzer::calculateShannonEntropy(core.empty() ? sni : core);
+            SecurityAnalyzer sa;
+            auto dga = sa.analyzeDomain(sni);
+            conn->is_dga_anomaly = dga.is_dga;
+            auto tunnel = sa.analyzeDNSQuery(sni);
+            conn->is_dns_tunneling = tunnel.is_tunneling;
+        }
     }
 }
 
@@ -182,6 +198,8 @@ GlobalConnectionTable::GlobalStats GlobalConnectionTable::getGlobalStats() const
     GlobalStats stats;
     stats.total_active_connections = 0;
     stats.total_connections_seen = 0;
+    stats.total_dga_detected = 0;
+    stats.total_dns_tunneling_detected = 0;
     
     std::unordered_map<std::string, size_t> domain_counts;
     
@@ -192,11 +210,22 @@ GlobalConnectionTable::GlobalStats GlobalConnectionTable::getGlobalStats() const
         stats.total_active_connections += tracker_stats.active_connections;
         stats.total_connections_seen += tracker_stats.total_connections_seen;
         
-        // Collect app distribution
+        // Collect app distribution and security metrics
         tracker->forEach([&](const Connection& conn) {
             stats.app_distribution[conn.app_type]++;
             if (!conn.sni.empty()) {
                 domain_counts[conn.sni]++;
+            }
+            if (!conn.inferred_os.empty() && conn.inferred_os != "Unknown") {
+                stats.os_distribution[conn.inferred_os]++;
+            }
+            if (conn.is_dga_anomaly) {
+                stats.total_dga_detected++;
+                stats.dga_alerts.push_back({conn.sni, conn.domain_entropy});
+            }
+            if (conn.is_dns_tunneling) {
+                stats.total_dns_tunneling_detected++;
+                stats.dns_tunneling_alerts.push_back(conn.sni);
             }
         });
     }
@@ -247,6 +276,45 @@ std::string GlobalConnectionTable::generateReport() const {
         ss << "║ " << std::setw(20) << std::left << appTypeToString(pair.first)
            << std::setw(10) << std::right << pair.second
            << " (" << std::fixed << std::setprecision(1) << std::setw(5) << pct << "%)           ║\n";
+    }
+
+    if (!stats.os_distribution.empty()) {
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        ss << "║             PASSIVE OS FINGERPRINT PROFILING (p0f)            ║\n";
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        size_t os_total = 0;
+        for (const auto& pair : stats.os_distribution) {
+            os_total += pair.second;
+        }
+        for (const auto& pair : stats.os_distribution) {
+            double pct = os_total > 0 ? (100.0 * pair.second / os_total) : 0.0;
+            ss << "║ " << std::setw(24) << std::left << pair.first
+               << std::setw(8) << std::right << pair.second
+               << " (" << std::fixed << std::setprecision(1) << std::setw(5) << pct << "%)               ║\n";
+        }
+    }
+
+    if (stats.total_dga_detected > 0 || stats.total_dns_tunneling_detected > 0) {
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        ss << "║          SECURITY INTELLIGENCE & THREAT ALERTS                ║\n";
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        if (stats.total_dga_detected > 0) {
+            ss << "║ [!] DGA C2 Botnet Domains Detected: " << std::setw(6) << stats.total_dga_detected << "                   ║\n";
+            for (const auto& [domain, ent] : stats.dga_alerts) {
+                std::string d_str = domain;
+                if (d_str.length() > 30) d_str = d_str.substr(0, 27) + "...";
+                ss << "║   * " << std::setw(30) << std::left << d_str
+                   << " (Entropy H=" << std::fixed << std::setprecision(2) << ent << ")   ║\n";
+            }
+        }
+        if (stats.total_dns_tunneling_detected > 0) {
+            ss << "║ [!] DNS Tunneling / Exfiltration Alerts: " << std::setw(6) << stats.total_dns_tunneling_detected << "              ║\n";
+            for (const auto& domain : stats.dns_tunneling_alerts) {
+                std::string d_str = domain;
+                if (d_str.length() > 40) d_str = d_str.substr(0, 37) + "...";
+                ss << "║   * " << std::setw(48) << std::left << d_str << "   ║\n";
+            }
+        }
     }
     
     if (!stats.top_domains.empty()) {

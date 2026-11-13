@@ -81,7 +81,36 @@ public:
         return queue_.size();
     }
     
-    // Signal shutdown (wake up all waiting threads)
+    // Push a batch of items under a single lock acquisition
+    void pushBatch(std::vector<T>& items) {
+        if (items.empty()) return;
+        std::unique_lock<std::mutex> lock(mutex_);
+        not_full_.wait(lock, [this, &items] { return queue_.size() + items.size() <= max_size_ || shutdown_; });
+        if (shutdown_) return;
+        for (auto& item : items) {
+            queue_.push(std::move(item));
+        }
+        items.clear();
+        not_empty_.notify_all();
+    }
+    
+    // Pop up to max_items in a single lock acquisition (dramatically cuts mutex contention)
+    size_t popBatch(std::vector<T>& batch, size_t max_items, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!not_empty_.wait_for(lock, timeout, [this] { return !queue_.empty() || shutdown_; })) {
+            return 0;
+        }
+        size_t count = 0;
+        while (!queue_.empty() && count < max_items) {
+            batch.push_back(std::move(queue_.front()));
+            queue_.pop();
+            count++;
+        }
+        if (count > 0) {
+            not_full_.notify_one();
+        }
+        return count;
+    }
     void shutdown() {
         std::lock_guard<std::mutex> lock(mutex_);
         shutdown_ = true;

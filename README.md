@@ -1,7 +1,15 @@
-# DPI Engine - Deep Packet Inspection System
+# DPI Engine - Deep Packet Inspection & Cyber-Threat Defense System
 
+> 📖 **Architecture & Interview Guide**: For the complete narrative journey, technical evolution, and interview preparation masterclass, see **[PROJECT_STORY_AND_ARCHITECTURE.md](PROJECT_STORY_AND_ARCHITECTURE.md)**.
 
-This document explains **everything** about this project - from basic networking concepts to the complete code architecture. After reading this, you should understand exactly how packets flow through the system without needing to read the code.
+### ✨ Advanced Enterprise Capabilities
+- **Layer-7 NIDS Engine ($O(N)$)**: Compiled Aho-Corasick multi-pattern Trie automaton matching SQLi, RCE, Webshells, and Directory Traversal.
+- **Mathematical Shannon Entropy DGA Radar**: Automated classification of pseudo-random botnet C2 domains ($H \ge 3.6$) vs natural language.
+- **Passive TCP Client OS Fingerprinting (`p0f` Style)**: Initial TTL and TCP window size mapping (Linux/Android, Windows, macOS/iOS).
+- **DNS Covert Tunneling & Exfiltration Defense**: Subdomain length and high Base64/Hex density exfiltration detection.
+- **Traffic Orchestrator & Multi-Queue PCAP Storage Sharding**: Microsecond K-way min-heap stream merging, Token/Leaky Bucket QoS, and dynamic least-loaded disk write sharding.
+- **Lock-Free Per-Flow Micro-Token Bucket Bandwidth Quotas**: Flow-level rate limiting with zero mutex locks via symmetric 5-tuple consistent hashing.
+- **Live Cyber-Ops TUI Dashboard**: Real-time ANSI-color and Unicode terminal dashboard (`--tui`).
 
 ---
 

@@ -42,82 +42,66 @@ bool SNIExtractor::isTLSClientHello(const uint8_t* payload, size_t length) {
     return true;
 }
 
-std::optional<std::string> SNIExtractor::extract(const uint8_t* payload, size_t length) {
-    if (!isTLSClientHello(payload, length)) {
-        return std::nullopt;
+std::optional<std::string> SNIExtractor::extractFromClientHello(const uint8_t* data, size_t length) {
+    if (length < 38) return std::nullopt;
+    if (data[0] != HANDSHAKE_CLIENT_HELLO) return std::nullopt;
+    
+    // Handshake header:
+    // Byte 0: Handshake type (0x01 = Client Hello)
+    // Bytes 1-3: Handshake length (24-bit integer)
+    uint32_t handshake_length = readUint24BE(data + 1);
+    if (handshake_length > length - 4) {
+        handshake_length = static_cast<uint32_t>(length - 4);
     }
     
-    // Skip TLS record header (5 bytes)
-    size_t offset = 5;
-    
-    // Skip handshake header
-    // Byte 0: Handshake type (already checked)
-    // Bytes 1-3: Length
-    uint32_t handshake_length = readUint24BE(payload + offset + 1);
-    offset += 4;
-    
-    // Client Hello body
-    // Bytes 0-1: Client version
-    offset += 2;
-    
-    // Bytes 2-33: Random (32 bytes)
-    offset += 32;
-    
-    // Session ID
+    // Client Hello body begins at offset 4:
+    // Bytes 0-1: Client version (offset 4..5)
+    // Bytes 2-33: Random 32 bytes (offset 6..37)
+    // Byte 34: Session ID Length (offset 38)
+    size_t offset = 38;
     if (offset >= length) return std::nullopt;
-    uint8_t session_id_length = payload[offset];
-    offset += 1 + session_id_length;
+    uint8_t session_id_length = data[offset++];
+    offset += session_id_length;
     
     // Cipher suites
     if (offset + 2 > length) return std::nullopt;
-    uint16_t cipher_suites_length = readUint16BE(payload + offset);
+    uint16_t cipher_suites_length = readUint16BE(data + offset);
     offset += 2 + cipher_suites_length;
     
     // Compression methods
     if (offset >= length) return std::nullopt;
-    uint8_t compression_methods_length = payload[offset];
-    offset += 1 + compression_methods_length;
+    uint8_t compression_methods_length = data[offset++];
+    offset += compression_methods_length;
     
     // Extensions
     if (offset + 2 > length) return std::nullopt;
-    uint16_t extensions_length = readUint16BE(payload + offset);
+    uint16_t extensions_length = readUint16BE(data + offset);
     offset += 2;
     
-    size_t extensions_end = offset + extensions_length;
-    if (extensions_end > length) {
-        extensions_end = length;  // Truncated, but try to parse anyway
-    }
+    size_t extensions_end = std::min(offset + extensions_length, length);
     
     // Parse extensions to find SNI
     while (offset + 4 <= extensions_end) {
-        uint16_t extension_type = readUint16BE(payload + offset);
-        uint16_t extension_length = readUint16BE(payload + offset + 2);
+        uint16_t extension_type = readUint16BE(data + offset);
+        uint16_t extension_length = readUint16BE(data + offset + 2);
         offset += 4;
         
         if (offset + extension_length > extensions_end) break;
         
         if (extension_type == EXTENSION_SNI) {
-            // SNI extension found
-            // Structure:
-            //   SNI List Length (2 bytes)
-            //   SNI Type (1 byte) - 0x00 for hostname
-            //   SNI Length (2 bytes)
-            //   SNI Value (variable)
-            
             if (extension_length < 5) break;
             
-            uint16_t sni_list_length = readUint16BE(payload + offset);
+            uint16_t sni_list_length = readUint16BE(data + offset);
             if (sni_list_length < 3) break;
             
-            uint8_t sni_type = payload[offset + 2];
-            uint16_t sni_length = readUint16BE(payload + offset + 3);
+            uint8_t sni_type = data[offset + 2];
+            uint16_t sni_length = readUint16BE(data + offset + 3);
             
             if (sni_type != SNI_TYPE_HOSTNAME) break;
             if (sni_length > extension_length - 5) break;
             
             // Extract the hostname
-            std::string sni(reinterpret_cast<const char*>(payload + offset + 5), sni_length);
-            return sni;
+            return std::string(reinterpret_cast<const char*>(data + offset + 5), sni_length);
         }
         
         offset += extension_length;
@@ -126,14 +110,20 @@ std::optional<std::string> SNIExtractor::extract(const uint8_t* payload, size_t 
     return std::nullopt;
 }
 
+std::optional<std::string> SNIExtractor::extract(const uint8_t* payload, size_t length) {
+    if (!isTLSClientHello(payload, length)) {
+        return std::nullopt;
+    }
+    
+    // Skip TLS record header (5 bytes) and parse the Handshake Client Hello
+    return extractFromClientHello(payload + 5, length - 5);
+}
+
 std::vector<std::pair<uint16_t, std::string>> SNIExtractor::extractExtensions(
     const uint8_t* payload, size_t length) {
-    
+    (void)payload;
+    (void)length;
     std::vector<std::pair<uint16_t, std::string>> extensions;
-    
-    // Similar parsing logic as extract(), but collect all extensions
-    // ... (abbreviated for brevity)
-    
     return extensions;
 }
 
@@ -162,8 +152,7 @@ std::optional<std::string> HTTPHostExtractor::extract(const uint8_t* payload, si
     }
     
     // Search for "Host: " header
-    const char* host_header = "Host: ";
-    const size_t host_header_len = 6;
+    constexpr size_t host_header_len = 6;
     
     for (size_t i = 0; i + host_header_len < length; i++) {
         // Check for header (case-insensitive "host:")
@@ -278,20 +267,14 @@ bool QUICSNIExtractor::isQUICInitial(const uint8_t* payload, size_t length) {
 }
 
 std::optional<std::string> QUICSNIExtractor::extract(const uint8_t* payload, size_t length) {
-    // QUIC Initial packets contain the TLS Client Hello inside CRYPTO frames
-    // This is complex to parse properly due to QUIC framing
-    // For now, we'll do a simplified search for the SNI extension pattern
-    
     if (!isQUICInitial(payload, length)) {
         return std::nullopt;
     }
     
-    // Search for TLS Client Hello pattern within the QUIC packet
-    // Look for the handshake type byte followed by SNI extension
-    for (size_t i = 0; i + 50 < length; i++) {
+    // Search for TLS Client Hello (Handshake Type 0x01) inside QUIC Initial / CRYPTO frames
+    for (size_t i = 0; i + 40 < length; i++) {
         if (payload[i] == 0x01) {  // Client Hello handshake type
-            // Try to extract SNI starting from here
-            auto result = SNIExtractor::extract(payload + i - 5, length - i + 5);
+            auto result = SNIExtractor::extractFromClientHello(payload + i, length - i);
             if (result) return result;
         }
     }

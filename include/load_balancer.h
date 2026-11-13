@@ -124,6 +124,7 @@ public:
     
     // Get number of LBs
     int getNumLBs() const { return lbs_.size(); }
+    const LoadBalancer& getLB(size_t i) const { return *lbs_[i]; }
     
     // Get aggregated stats
     struct AggregatedStats {
@@ -132,6 +133,8 @@ public:
     };
     
     AggregatedStats getAggregatedStats() const;
+    
+    int getFpsPerLb() const { return fps_per_lb_; }
 
 private:
     std::vector<std::unique_ptr<LoadBalancer>> lbs_;

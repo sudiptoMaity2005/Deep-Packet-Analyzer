@@ -8,6 +8,8 @@
 #include "fast_path.h"
 #include "rule_manager.h"
 #include "connection_tracker.h"
+#include "traffic_orchestrator.h"
+#include "multiqueue_pcap_writer.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -59,6 +61,8 @@ public:
         size_t queue_size = 10000;
         std::string rules_file;
         bool verbose = false;
+        OrchestratorConfig orchestrator_config;
+        MultiQueueCaptureConfig capture_sink_config;
     };
     
     DPIEngine(const Config& config);
@@ -67,11 +71,13 @@ public:
     // Initialize the engine (create threads, queues)
     bool initialize();
     
-    // Process a PCAP file
-    // input_file: Path to input PCAP (user traffic)
-    // output_file: Path to output PCAP (forwarded traffic)
+    // Process a single PCAP file
     bool processFile(const std::string& input_file, 
                      const std::string& output_file);
+
+    // Process multiple PCAP files via Orchestrator (Multi-Host / Distributed captures)
+    bool processFiles(const std::vector<std::string>& input_files,
+                      const std::string& output_file);
     
     // Start the engine (starts all threads)
     void start();
@@ -104,6 +110,28 @@ public:
     // Unblock a domain
     void unblockDomain(const std::string& domain);
     
+    // Block a CIDR subnet
+    void blockCIDR(const std::string& cidr);
+    
+    // Block a port
+    void blockPort(uint16_t port);
+    void unblockPort(uint16_t port);
+    
+    // Block an L7 payload signature via Aho-Corasick (e.g. "UNION SELECT", "/bin/sh")
+    void blockPayloadSignature(const std::string& signature, const std::string& rule_name = "");
+    
+    // Load pre-configured NIDS signatures (SQLi, RCE, Webshells, Traversal)
+    void loadDefaultNIDSSignatures();
+
+    // Enable Security Anomaly Detection (Shannon entropy DGA & DNS Tunneling)
+    void enableSecurityAnomalyDetection(bool enable = true);
+    void setDGAEntropyThreshold(double threshold);
+
+    // Set per-flow default or per-application bandwidth limits (in bytes/sec and burst bytes)
+    void setDefaultFlowRateLimit(double bytes_per_sec, double burst_bytes = 65536.0);
+    void setAppFlowRateLimit(AppType app, double bytes_per_sec, double burst_bytes = 65536.0);
+    void setAppFlowRateLimit(const std::string& app_name, double bytes_per_sec, double burst_bytes = 65536.0);
+    
     // Load rules from file
     bool loadRules(const std::string& filename);
     
@@ -118,6 +146,13 @@ public:
     // Generate classification report (app distribution)
     std::string generateClassificationReport() const;
     
+    // Export full statistics and classification to structured JSON
+    bool exportJsonReport(const std::string& filename) const;
+
+    // Render & display live Cyber-Ops ANSI TUI Dashboard
+    std::string generateDashboard() const;
+    void printDashboard() const;
+    
     // Get real-time statistics
     const DPIStats& getStats() const;
     
@@ -129,6 +164,10 @@ public:
     RuleManager& getRuleManager() { return *rule_manager_; }
     const Config& getConfig() const { return config_; }
     bool isRunning() const { return running_; }
+    TrafficOrchestrator* getOrchestrator() { return orchestrator_.get(); }
+    const TrafficOrchestrator* getOrchestrator() const { return orchestrator_.get(); }
+    MultiQueueCaptureInterface* getCaptureInterface() { return capture_interface_.get(); }
+    const MultiQueueCaptureInterface* getCaptureInterface() const { return capture_interface_.get(); }
 
 private:
     Config config_;
@@ -136,6 +175,8 @@ private:
     // Shared components
     std::unique_ptr<RuleManager> rule_manager_;
     std::unique_ptr<GlobalConnectionTable> global_conn_table_;
+    std::unique_ptr<TrafficOrchestrator> orchestrator_;
+    std::unique_ptr<MultiQueueCaptureInterface> capture_interface_;
     
     // Thread pools
     std::unique_ptr<FPManager> fp_manager_;

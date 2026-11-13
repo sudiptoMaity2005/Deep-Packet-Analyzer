@@ -65,25 +65,31 @@ struct ParsedPacket {
     
     // IP layer (if present)
     bool has_ip = false;
-    uint8_t ip_version;
+    uint8_t ip_version = 4;
     std::string src_ip;
     std::string dest_ip;
-    uint8_t protocol;          // TCP=6, UDP=17, ICMP=1
-    uint8_t ttl;
+    uint32_t src_ip_v4 = 0;
+    uint32_t dest_ip_v4 = 0;
+    std::array<uint8_t, 16> src_ip_v6{};
+    std::array<uint8_t, 16> dest_ip_v6{};
+    uint8_t protocol = 0;          // TCP=6, UDP=17, ICMP=1
+    uint8_t ttl = 0;
     
     // Transport layer (if present)
     bool has_tcp = false;
     bool has_udp = false;
-    uint16_t src_port;
-    uint16_t dest_port;
+    uint16_t src_port = 0;
+    uint16_t dest_port = 0;
     
     // TCP-specific
-    uint8_t tcp_flags;
-    uint32_t seq_number;
-    uint32_t ack_number;
+    uint8_t tcp_flags = 0;
+    uint16_t window_size = 0;
+    uint32_t seq_number = 0;
+    uint32_t ack_number = 0;
     
     // Payload
-    size_t payload_length;
+    size_t payload_offset = 0;
+    size_t payload_length = 0;
     const uint8_t* payload_data = nullptr;  // Points into original packet
 };
 
@@ -96,12 +102,14 @@ public:
     // Helper functions to convert to human-readable strings
     static std::string macToString(const uint8_t* mac);
     static std::string ipToString(uint32_t ip);
+    static std::string ipv6ToString(const uint8_t* ip6);
     static std::string protocolToString(uint8_t protocol);
     static std::string tcpFlagsToString(uint8_t flags);
     
 private:
     static bool parseEthernet(const uint8_t* data, size_t len, ParsedPacket& parsed, size_t& offset);
     static bool parseIPv4(const uint8_t* data, size_t len, ParsedPacket& parsed, size_t& offset);
+    static bool parseIPv6(const uint8_t* data, size_t len, ParsedPacket& parsed, size_t& offset);
     static bool parseTCP(const uint8_t* data, size_t len, ParsedPacket& parsed, size_t& offset);
     static bool parseUDP(const uint8_t* data, size_t len, ParsedPacket& parsed, size_t& offset);
 };

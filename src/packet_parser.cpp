@@ -8,10 +8,6 @@
 using PortableNet::netToHost16;
 using PortableNet::netToHost32;
 
-// Wrapper macros for compatibility
-#define ntohs(x) netToHost16(x)
-#define ntohl(x) netToHost32(x)
-
 namespace PacketAnalyzer {
 
 bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
@@ -29,9 +25,24 @@ bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
         return false;
     }
     
-    // Parse IP layer if it's an IPv4 packet
+    // Parse IP layer if it's an IPv4 or IPv6 packet
     if (parsed.ether_type == EtherType::IPv4) {
         if (!parseIPv4(data, len, parsed, offset)) {
+            return false;
+        }
+        
+        // Parse transport layer based on protocol
+        if (parsed.protocol == Protocol::TCP) {
+            if (!parseTCP(data, len, parsed, offset)) {
+                return false;
+            }
+        } else if (parsed.protocol == Protocol::UDP) {
+            if (!parseUDP(data, len, parsed, offset)) {
+                return false;
+            }
+        }
+    } else if (parsed.ether_type == EtherType::IPv6) {
+        if (!parseIPv6(data, len, parsed, offset)) {
             return false;
         }
         
@@ -48,6 +59,7 @@ bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
     }
     
     // Set payload information
+    parsed.payload_offset = offset;
     if (offset < len) {
         parsed.payload_length = len - offset;
         parsed.payload_data = data + offset;
@@ -75,7 +87,7 @@ bool PacketParser::parseEthernet(const uint8_t* data, size_t len,
     parsed.src_mac = macToString(data + 6);
     
     // Parse EtherType (bytes 12-13, big-endian)
-    parsed.ether_type = ntohs(*reinterpret_cast<const uint16_t*>(data + 12));
+    parsed.ether_type = netToHost16(*reinterpret_cast<const uint16_t*>(data + 12));
     
     offset = ETH_HEADER_LEN;
     return true;
@@ -113,15 +125,54 @@ bool PacketParser::parseIPv4(const uint8_t* data, size_t len,
     // Source IP (bytes 12-15)
     uint32_t src_ip;
     std::memcpy(&src_ip, ip_data + 12, 4);
+    parsed.src_ip_v4 = src_ip;
     parsed.src_ip = ipToString(src_ip);
     
     // Destination IP (bytes 16-19)
     uint32_t dest_ip;
     std::memcpy(&dest_ip, ip_data + 16, 4);
+    parsed.dest_ip_v4 = dest_ip;
     parsed.dest_ip = ipToString(dest_ip);
     
     parsed.has_ip = true;
     offset += ip_header_len;
+    
+    return true;
+}
+
+bool PacketParser::parseIPv6(const uint8_t* data, size_t len, 
+                              ParsedPacket& parsed, size_t& offset) {
+    // IPv6 base header is always 40 bytes
+    constexpr size_t IPV6_HEADER_LEN = 40;
+    
+    if (len < offset + IPV6_HEADER_LEN) {
+        return false;
+    }
+    
+    const uint8_t* ip_data = data + offset;
+    
+    // First byte: version (upper 4 bits)
+    parsed.ip_version = (ip_data[0] >> 4) & 0x0F;
+    if (parsed.ip_version != 6) {
+        return false;
+    }
+    
+    // Byte 6: Next Header (protocol)
+    parsed.protocol = ip_data[6];
+    
+    // Byte 7: Hop Limit (TTL equivalent)
+    parsed.ttl = ip_data[7];
+    
+    // Bytes 8-23: Source IPv6 (16 bytes)
+    std::memcpy(parsed.src_ip_v6.data(), ip_data + 8, 16);
+    parsed.src_ip = ipv6ToString(parsed.src_ip_v6.data());
+    
+    // Bytes 24-39: Destination IPv6 (16 bytes)
+    std::memcpy(parsed.dest_ip_v6.data(), ip_data + 24, 16);
+    parsed.dest_ip = ipv6ToString(parsed.dest_ip_v6.data());
+    
+    parsed.has_ip = true;
+    offset += IPV6_HEADER_LEN;
     
     return true;
 }
@@ -138,16 +189,16 @@ bool PacketParser::parseTCP(const uint8_t* data, size_t len,
     const uint8_t* tcp_data = data + offset;
     
     // Source port (bytes 0-1)
-    parsed.src_port = ntohs(*reinterpret_cast<const uint16_t*>(tcp_data));
+    parsed.src_port = netToHost16(*reinterpret_cast<const uint16_t*>(tcp_data));
     
     // Destination port (bytes 2-3)
-    parsed.dest_port = ntohs(*reinterpret_cast<const uint16_t*>(tcp_data + 2));
+    parsed.dest_port = netToHost16(*reinterpret_cast<const uint16_t*>(tcp_data + 2));
     
     // Sequence number (bytes 4-7)
-    parsed.seq_number = ntohl(*reinterpret_cast<const uint32_t*>(tcp_data + 4));
+    parsed.seq_number = netToHost32(*reinterpret_cast<const uint32_t*>(tcp_data + 4));
     
     // Acknowledgment number (bytes 8-11)
-    parsed.ack_number = ntohl(*reinterpret_cast<const uint32_t*>(tcp_data + 8));
+    parsed.ack_number = netToHost32(*reinterpret_cast<const uint32_t*>(tcp_data + 8));
     
     // Data offset (upper 4 bits of byte 12) - header length in 32-bit words
     uint8_t data_offset = (tcp_data[12] >> 4) & 0x0F;
@@ -155,6 +206,9 @@ bool PacketParser::parseTCP(const uint8_t* data, size_t len,
     
     // Flags (byte 13)
     parsed.tcp_flags = tcp_data[13];
+    
+    // Window size (bytes 14-15)
+    parsed.window_size = netToHost16(*reinterpret_cast<const uint16_t*>(tcp_data + 14));
     
     if (tcp_header_len < MIN_TCP_HEADER_LEN || len < offset + tcp_header_len) {
         return false;
@@ -178,10 +232,10 @@ bool PacketParser::parseUDP(const uint8_t* data, size_t len,
     const uint8_t* udp_data = data + offset;
     
     // Source port (bytes 0-1)
-    parsed.src_port = ntohs(*reinterpret_cast<const uint16_t*>(udp_data));
+    parsed.src_port = netToHost16(*reinterpret_cast<const uint16_t*>(udp_data));
     
     // Destination port (bytes 2-3)
-    parsed.dest_port = ntohs(*reinterpret_cast<const uint16_t*>(udp_data + 2));
+    parsed.dest_port = netToHost16(*reinterpret_cast<const uint16_t*>(udp_data + 2));
     
     parsed.has_udp = true;
     offset += UDP_HEADER_LEN;
@@ -207,6 +261,17 @@ std::string PacketParser::ipToString(uint32_t ip) {
        << ((ip >> 8) & 0xFF) << "."
        << ((ip >> 16) & 0xFF) << "."
        << ((ip >> 24) & 0xFF);
+    return ss.str();
+}
+
+std::string PacketParser::ipv6ToString(const uint8_t* ip6) {
+    std::ostringstream ss;
+    ss << std::hex;
+    for (int i = 0; i < 16; i += 2) {
+        if (i > 0) ss << ":";
+        uint16_t word = (static_cast<uint16_t>(ip6[i]) << 8) | ip6[i + 1];
+        ss << word;
+    }
     return ss.str();
 }
 

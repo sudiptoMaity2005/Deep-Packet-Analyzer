@@ -1,4 +1,5 @@
 #include "fast_path.h"
+#include "security_analyzer.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -84,13 +85,15 @@ PacketAction FastPathProcessor::processPacket(PacketJob& job) {
         return PacketAction::FORWARD;
     }
     
-    // Update connection stats
-    bool is_outbound = true;  // In this model, all packets from user are outbound
+    // Update connection stats (determine if outbound or inbound)
+    bool is_outbound = (conn->tuple.src_port == job.tuple.src_port &&
+                        (conn->tuple.ip_version == 4 ? (conn->tuple.src_ip == job.tuple.src_ip)
+                                                     : (conn->tuple.src_ip6 == job.tuple.src_ip6)));
     conn_tracker_.updateConnection(conn, job.data.size(), is_outbound);
     
-    // Update TCP state if applicable
+    // Update TCP state if applicable (with passive OS fingerprinting on SYN)
     if (job.tuple.protocol == 6) {  // TCP
-        updateTCPState(conn, job.tcp_flags);
+        updateTCPState(conn, job.tcp_flags, job.ttl, job.window_size);
     }
     
     // If connection is already blocked, drop immediately
@@ -103,8 +106,32 @@ PacketAction FastPathProcessor::processPacket(PacketJob& job) {
         inspectPayload(job, conn);
     }
     
+    // Apply per-flow micro-shaper policies
+    if (rule_manager_ && rule_manager_->hasFlowRateLimits()) {
+        rule_manager_->applyFlowPolicy(conn);
+    }
+
     // Check rules (even for classified connections, as rules might change)
-    return checkRules(job, conn);
+    PacketAction action = checkRules(job, conn);
+    if (action == PacketAction::DROP) {
+        return PacketAction::DROP;
+    }
+
+    // Per-Flow Micro-Token Bucket Bandwidth Quota Check
+    if (conn->flow_bucket.rate_bps > 0.0) {
+        // High priority QoS bypass for TCP handshake (SYN) and teardown (FIN, RST)
+        bool is_qos_handshake = (job.tuple.protocol == 6 &&
+                                 ((job.tcp_flags & 0x02) || (job.tcp_flags & 0x01) || (job.tcp_flags & 0x04)));
+        if (!is_qos_handshake) {
+            if (!conn->flow_bucket.consume(job.data.size())) {
+                conn->rate_limited_drops++;
+                rate_limited_dropped_++;
+                return PacketAction::DROP;
+            }
+        }
+    }
+
+    return PacketAction::FORWARD;
 }
 
 void FastPathProcessor::inspectPayload(PacketJob& job, Connection* conn) {
@@ -121,6 +148,18 @@ void FastPathProcessor::inspectPayload(PacketJob& job, Connection* conn) {
     
     // Try HTTP Host header extraction
     if (tryExtractHTTPHost(job, conn)) {
+        return;
+    }
+    
+    // Check for QUIC / HTTP3 (UDP port 443)
+    if (job.tuple.protocol == 17 && (job.tuple.dst_port == 443 || job.tuple.src_port == 443)) {
+        auto quic_sni = QUICSNIExtractor::extract(payload, job.payload_length);
+        if (quic_sni) {
+            AppType app = sniToAppType(*quic_sni);
+            conn_tracker_.classifyConnection(conn, app, *quic_sni);
+            return;
+        }
+        conn_tracker_.classifyConnection(conn, AppType::QUIC, "");
         return;
     }
     
@@ -142,8 +181,9 @@ void FastPathProcessor::inspectPayload(PacketJob& job, Connection* conn) {
 }
 
 bool FastPathProcessor::tryExtractSNI(const PacketJob& job, Connection* conn) {
-    // Only for port 443 (HTTPS) or if it looks like TLS
-    if (job.tuple.dst_port != 443 && job.payload_length < 50) {
+    // Check if destination or source port is HTTPS (443/8443) or payload has TLS signature
+    if (job.tuple.dst_port != 443 && job.tuple.src_port != 443 &&
+        job.tuple.dst_port != 8443 && job.payload_length < 50) {
         return false;
     }
     
@@ -171,8 +211,9 @@ bool FastPathProcessor::tryExtractSNI(const PacketJob& job, Connection* conn) {
 }
 
 bool FastPathProcessor::tryExtractHTTPHost(const PacketJob& job, Connection* conn) {
-    // Only for port 80 (HTTP)
-    if (job.tuple.dst_port != 80) {
+    // Check for standard HTTP ports (80, 8080)
+    if (job.tuple.dst_port != 80 && job.tuple.src_port != 80 &&
+        job.tuple.dst_port != 8080 && job.tuple.src_port != 8080) {
         return false;
     }
     
@@ -204,12 +245,14 @@ PacketAction FastPathProcessor::checkRules(const PacketJob& job, Connection* con
     // Parse source IP from tuple
     uint32_t src_ip = job.tuple.src_ip;
     
-    // Check blocking rules
+    // Check blocking rules (including Layer-7 Aho-Corasick payload signatures)
     auto block_reason = rule_manager_->shouldBlock(
         src_ip,
         job.tuple.dst_port,
         conn->app_type,
-        conn->sni
+        conn->sni,
+        job.payload_data,
+        job.payload_length
     );
     
     if (block_reason) {
@@ -218,17 +261,26 @@ PacketAction FastPathProcessor::checkRules(const PacketJob& job, Connection* con
         ss << "[FP" << fp_id_ << "] BLOCKED packet: ";
         
         switch (block_reason->type) {
-            case RuleManager::BlockReason::IP:
+            case RuleManager::BlockReason::Type::IP:
                 ss << "IP " << block_reason->detail;
                 break;
-            case RuleManager::BlockReason::APP:
+            case RuleManager::BlockReason::Type::APP:
                 ss << "App " << block_reason->detail;
                 break;
-            case RuleManager::BlockReason::DOMAIN:
+            case RuleManager::BlockReason::Type::DOMAIN_NAME:
                 ss << "Domain " << block_reason->detail;
                 break;
-            case RuleManager::BlockReason::PORT:
+            case RuleManager::BlockReason::Type::PORT:
                 ss << "Port " << block_reason->detail;
+                break;
+            case RuleManager::BlockReason::Type::PAYLOAD_SIGNATURE:
+                ss << "Payload Signature " << block_reason->detail;
+                break;
+            case RuleManager::BlockReason::Type::SECURITY_ANOMALY:
+                ss << "Security Anomaly " << block_reason->detail;
+                break;
+            case RuleManager::BlockReason::Type::RATE_LIMIT:
+                ss << "Flow Rate Limit " << block_reason->detail;
                 break;
         }
         
@@ -243,13 +295,17 @@ PacketAction FastPathProcessor::checkRules(const PacketJob& job, Connection* con
     return PacketAction::FORWARD;
 }
 
-void FastPathProcessor::updateTCPState(Connection* conn, uint8_t tcp_flags) {
+void FastPathProcessor::updateTCPState(Connection* conn, uint8_t tcp_flags, uint8_t ttl, uint16_t window_size) {
     constexpr uint8_t SYN = 0x02;
     constexpr uint8_t ACK = 0x10;
     constexpr uint8_t FIN = 0x01;
     constexpr uint8_t RST = 0x04;
     
     if (tcp_flags & SYN) {
+        if (conn->inferred_os == "Unknown" || conn->inferred_os.empty()) {
+            auto fp = SecurityAnalyzer::fingerprintTCPSYN(ttl, window_size, tcp_flags);
+            conn->inferred_os = fp.os_family;
+        }
         if (tcp_flags & ACK) {
             conn->syn_ack_seen = true;
         } else {
@@ -281,6 +337,7 @@ FastPathProcessor::FPStats FastPathProcessor::getStats() const {
     stats.packets_processed = packets_processed_.load();
     stats.packets_forwarded = packets_forwarded_.load();
     stats.packets_dropped = packets_dropped_.load();
+    stats.rate_limited_dropped = rate_limited_dropped_.load();
     stats.connections_tracked = conn_tracker_.getActiveCount();
     stats.sni_extractions = sni_extractions_.load();
     stats.classification_hits = classification_hits_.load();
@@ -322,13 +379,14 @@ void FPManager::stopAll() {
 }
 
 FPManager::AggregatedStats FPManager::getAggregatedStats() const {
-    AggregatedStats stats = {0, 0, 0, 0};
+    AggregatedStats stats = {0, 0, 0, 0, 0};
     
     for (const auto& fp : fps_) {
         auto fp_stats = fp->getStats();
         stats.total_processed += fp_stats.packets_processed;
         stats.total_forwarded += fp_stats.packets_forwarded;
         stats.total_dropped += fp_stats.packets_dropped;
+        stats.total_rate_limited += fp_stats.rate_limited_dropped;
         stats.total_connections += fp_stats.connections_tracked;
     }
     

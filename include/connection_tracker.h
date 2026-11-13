@@ -70,6 +70,9 @@ public:
     // Clear all connections
     void clear();
     
+    // Get FP owner ID
+    int getFPId() const { return fp_id_; }
+    
     // Iteration callback for all connections
     void forEach(std::function<void(const Connection&)> callback) const;
 
@@ -107,6 +110,11 @@ public:
         size_t total_connections_seen;
         std::unordered_map<AppType, size_t> app_distribution;
         std::vector<std::pair<std::string, size_t>> top_domains;
+        std::unordered_map<std::string, size_t> os_distribution;
+        std::vector<std::pair<std::string, double>> dga_alerts;
+        std::vector<std::string> dns_tunneling_alerts;
+        size_t total_dga_detected = 0;
+        size_t total_dns_tunneling_detected = 0;
     };
     
     GlobalStats getGlobalStats() const;

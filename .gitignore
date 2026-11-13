@@ -1,0 +1,32 @@
+# Build directories and compiled binaries
+build/
+bin/
+lib/
+*.o
+*.a
+*.so
+*.dylib
+
+# CMake temporary files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Language server & IDE caches
+.cache/
+.vscode/
+.idea/
+
+# Operating System artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Temporary test outputs
+out*.pcap
+out*.json
+report.json

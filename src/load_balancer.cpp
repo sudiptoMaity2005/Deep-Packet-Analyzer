@@ -16,7 +16,7 @@ LoadBalancer::LoadBalancer(int lb_id,
       num_fps_(fp_queues.size()),
       input_queue_(10000),
       fp_queues_(std::move(fp_queues)),
-      per_fp_counts_(fp_queues.size()) {
+      per_fp_counts_(num_fps_, 0) {
 }
 
 LoadBalancer::~LoadBalancer() {
@@ -69,9 +69,10 @@ void LoadBalancer::run() {
 }
 
 int LoadBalancer::selectFP(const FiveTuple& tuple) {
-    // Hash the five-tuple and map to one of our FPs
+    // Hash the five-tuple with an independent seed so Tier 2 distribution
+    // is decorrelated from Tier 1 LB selection
     FiveTupleHash hasher;
-    size_t hash = hasher(tuple);
+    size_t hash = hasher(tuple, 0x9e3779b97f4a7c15ULL * (static_cast<uint64_t>(lb_id_) + 1));
     return hash % num_fps_;
 }
 
@@ -126,9 +127,9 @@ void LBManager::stopAll() {
 }
 
 LoadBalancer& LBManager::getLBForPacket(const FiveTuple& tuple) {
-    // First level of load balancing: select LB based on hash
+    // First level of load balancing: select LB based on symmetric hash
     FiveTupleHash hasher;
-    size_t hash = hasher(tuple);
+    size_t hash = hasher(tuple, 0);
     int lb_index = hash % lbs_.size();
     return *lbs_[lb_index];
 }

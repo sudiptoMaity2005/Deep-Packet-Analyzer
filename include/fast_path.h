@@ -61,6 +61,7 @@ public:
         uint64_t packets_processed;
         uint64_t packets_forwarded;
         uint64_t packets_dropped;
+        uint64_t rate_limited_dropped;
         uint64_t connections_tracked;
         uint64_t sni_extractions;
         uint64_t classification_hits;
@@ -93,6 +94,7 @@ private:
     std::atomic<uint64_t> packets_processed_{0};
     std::atomic<uint64_t> packets_forwarded_{0};
     std::atomic<uint64_t> packets_dropped_{0};
+    std::atomic<uint64_t> rate_limited_dropped_{0};
     std::atomic<uint64_t> sni_extractions_{0};
     std::atomic<uint64_t> classification_hits_{0};
     
@@ -118,8 +120,8 @@ private:
     // Check if packet matches any blocking rules
     PacketAction checkRules(const PacketJob& job, Connection* conn);
     
-    // Update TCP connection state
-    void updateTCPState(Connection* conn, uint8_t tcp_flags);
+    // Update TCP connection state & Passive OS Fingerprint
+    void updateTCPState(Connection* conn, uint8_t tcp_flags, uint8_t ttl = 64, uint16_t window_size = 0);
 };
 
 // ============================================================================
@@ -145,6 +147,7 @@ public:
     
     // Get specific FP
     FastPathProcessor& getFP(int id) { return *fps_[id]; }
+    const FastPathProcessor& getFP(int id) const { return *fps_[id]; }
     
     // Get FP input queue
     ThreadSafeQueue<PacketJob>& getFPQueue(int id) { return fps_[id]->getInputQueue(); }
@@ -166,6 +169,7 @@ public:
         uint64_t total_processed;
         uint64_t total_forwarded;
         uint64_t total_dropped;
+        uint64_t total_rate_limited;
         uint64_t total_connections;
     };
     

@@ -362,13 +362,14 @@ public:
         int total_fps = cfg.num_lbs * cfg.fps_per_lb;
         
         std::cout << "\n";
-        std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
-        std::cout << "║              DPI ENGINE v2.0 (Multi-threaded)                 ║\n";
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-        std::cout << "║ Load Balancers: " << std::setw(2) << cfg.num_lbs 
-                  << "    FPs per LB: " << std::setw(2) << cfg.fps_per_lb
-                  << "    Total FPs: " << std::setw(2) << total_fps << "     ║\n";
-        std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
+        std::cout << "\033[36m╔══════════════════════════════════════════════════════════════╗\033[0m\n";
+        std::cout << "\033[36m║              \033[1;32mDPI ENGINE v2.0 (Multi-threaded)\033[0m\033[36m                ║\033[0m\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
+        std::cout << "\033[36m║ \033[1;33mLoad Balancers:\033[0m " << std::setw(2) << cfg.num_lbs 
+                  << "    \033[1;33mFPs per LB:\033[0m " << std::setw(2) << cfg.fps_per_lb
+                  << "    \033[1;33mTotal FPs:\033[0m " << std::setw(2) << total_fps << "     \033[36m║\033[0m\n";
+        std::cout << "\033[36m╚══════════════════════════════════════════════════════════════╝\033[0m\n\n";
+
         
         // Create FP threads
         for (int i = 0; i < total_fps; i++) {
@@ -429,7 +430,7 @@ public:
         });
         
         // Read and dispatch packets
-        std::cout << "[Reader] Processing packets...\n";
+        std::cout << "\033[1;34m[Reader]\033[0m \033[32mProcessing packets...\033[0m\n";
         RawPacket raw;
         ParsedPacket parsed;
         uint32_t pkt_id = 0;
@@ -495,7 +496,7 @@ public:
             lbs_[lb_idx]->queue().push(std::move(pkt));
         }
         
-        std::cout << "[Reader] Done reading " << pkt_id << " packets\n";
+        std::cout << "\033[1;34m[Reader]\033[0m \033[32mDone reading \033[1;33m" << pkt_id << "\033[32m packets\033[0m\n";
         reader.close();
         
         // Wait for queues to drain
@@ -527,31 +528,31 @@ private:
     
     void printReport() {
         std::cout << "\n";
-        std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
-        std::cout << "║                      PROCESSING REPORT                        ║\n";
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-        std::cout << "║ Total Packets:      " << std::setw(12) << stats_.total_packets.load() << "                           ║\n";
-        std::cout << "║ Total Bytes:        " << std::setw(12) << stats_.total_bytes.load() << "                           ║\n";
-        std::cout << "║ TCP Packets:        " << std::setw(12) << stats_.tcp_packets.load() << "                           ║\n";
-        std::cout << "║ UDP Packets:        " << std::setw(12) << stats_.udp_packets.load() << "                           ║\n";
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-        std::cout << "║ Forwarded:          " << std::setw(12) << stats_.forwarded.load() << "                           ║\n";
-        std::cout << "║ Dropped:            " << std::setw(12) << stats_.dropped.load() << "                           ║\n";
+        std::cout << "\033[36m╔══════════════════════════════════════════════════════════════╗\033[0m\n";
+        std::cout << "\033[36m║                      \033[1;32mPROCESSING REPORT\033[0m\033[36m                       ║\033[0m\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
+        std::cout << "\033[36m║ \033[1mTotal Packets:      \033[0m\033[32m" << std::setw(12) << stats_.total_packets.load() << "\033[0m\033[36m                           ║\033[0m\n";
+        std::cout << "\033[36m║ \033[1mTotal Bytes:        \033[0m\033[32m" << std::setw(12) << stats_.total_bytes.load() << "\033[0m\033[36m                           ║\033[0m\n";
+        std::cout << "\033[36m║ \033[1mTCP Packets:        \033[0m\033[32m" << std::setw(12) << stats_.tcp_packets.load() << "\033[0m\033[36m                           ║\033[0m\n";
+        std::cout << "\033[36m║ \033[1mUDP Packets:        \033[0m\033[32m" << std::setw(12) << stats_.udp_packets.load() << "\033[0m\033[36m                           ║\033[0m\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
+        std::cout << "\033[36m║ \033[1;32mForwarded:          \033[0m\033[32m" << std::setw(12) << stats_.forwarded.load() << "\033[0m\033[36m                           ║\033[0m\n";
+        std::cout << "\033[36m║ \033[1;31mDropped:            \033[0m\033[31m" << std::setw(12) << stats_.dropped.load() << "\033[0m\033[36m                           ║\033[0m\n";
         
         // Thread stats
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-        std::cout << "║ THREAD STATISTICS                                             ║\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
+        std::cout << "\033[36m║ \033[1;33mTHREAD STATISTICS\033[0m\033[36m                                            ║\033[0m\n";
         for (size_t i = 0; i < lbs_.size(); i++) {
-            std::cout << "║   LB" << i << " dispatched:   " << std::setw(12) << lbs_[i]->dispatched() << "                           ║\n";
+            std::cout << "\033[36m║   \033[35mLB" << i << " dispatched:   \033[0m\033[32m" << std::setw(12) << lbs_[i]->dispatched() << "\033[0m\033[36m                           ║\033[0m\n";
         }
         for (size_t i = 0; i < fps_.size(); i++) {
-            std::cout << "║   FP" << i << " processed:    " << std::setw(12) << fps_[i]->processed() << "                           ║\n";
+            std::cout << "\033[36m║   \033[34mFP" << i << " processed:    \033[0m\033[32m" << std::setw(12) << fps_[i]->processed() << "\033[0m\033[36m                           ║\033[0m\n";
         }
         
         // App distribution
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-        std::cout << "║                   APPLICATION BREAKDOWN                       ║\n";
-        std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
+        std::cout << "\033[36m║                   \033[1;32mAPPLICATION BREAKDOWN\033[0m\033[36m                      ║\033[0m\n";
+        std::cout << "\033[36m╠══════════════════════════════════════════════════════════════╣\033[0m\n";
         
         std::lock_guard<std::mutex> lock(stats_.app_mutex);
         
@@ -566,19 +567,19 @@ private:
             int bar = static_cast<int>(pct / 5);
             std::string bar_str(bar, '#');
             
-            std::cout << "║ " << std::setw(15) << std::left << appTypeToString(app)
-                      << std::setw(8) << std::right << count
+            std::cout << "\033[36m║ \033[0m" << std::setw(15) << std::left << appTypeToString(app)
+                      << "\033[1;33m" << std::setw(8) << std::right << count << "\033[0m"
                       << " " << std::setw(5) << std::fixed << std::setprecision(1) << pct << "% "
-                      << std::setw(20) << std::left << bar_str << "  ║\n";
+                      << "\033[1;32m" << std::setw(20) << std::left << bar_str << "\033[0m\033[36m  ║\033[0m\n";
         }
         
-        std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
+        std::cout << "\033[36m╚══════════════════════════════════════════════════════════════╝\033[0m\n";
         
         // Detected SNIs
         if (!stats_.detected_snis.empty()) {
-            std::cout << "\n[Detected Domains/SNIs]\n";
+            std::cout << "\n\033[1;36m[Detected Domains/SNIs]\033[0m\n";
             for (const auto& [sni, app] : stats_.detected_snis) {
-                std::cout << "  - " << sni << " -> " << appTypeToString(app) << "\n";
+                std::cout << "  - \033[33m" << sni << "\033[0m -> \033[1;32m" << appTypeToString(app) << "\033[0m\n";
             }
         }
     }

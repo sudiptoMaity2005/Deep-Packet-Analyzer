@@ -45,9 +45,13 @@ namespace DPI {
 
 class SNIExtractor {
 public:
-    // Extract SNI from a TLS Client Hello packet
+    // Extract SNI from a TLS Client Hello packet (with TLS record layer header)
     // payload should point to the start of TCP payload (after TCP header)
     static std::optional<std::string> extract(const uint8_t* payload, size_t length);
+    
+    // Extract SNI directly from Handshake layer (starting at Handshake Type 0x01, no TLS record header)
+    // Used for QUIC CRYPTO frames and raw handshake payloads
+    static std::optional<std::string> extractFromClientHello(const uint8_t* data, size_t length);
     
     // Check if this looks like a TLS Client Hello
     static bool isTLSClientHello(const uint8_t* payload, size_t length);
