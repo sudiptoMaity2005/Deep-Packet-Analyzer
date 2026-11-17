@@ -2,10 +2,14 @@
 build/
 bin/
 lib/
+dpi_engine
+packet_analyzer
+dpi_tests
 *.o
 *.a
 *.so
 *.dylib
+*.exe
 
 # CMake temporary files
 CMakeCache.txt
@@ -27,6 +31,7 @@ compile_commands.json
 .Trashes
 
 # Temporary test outputs
+output.pcap
 out*.pcap
 out*.json
 report.json

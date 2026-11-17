@@ -1,6 +1,6 @@
 # DPI Engine - Deep Packet Inspection & Cyber-Threat Defense System
 
-> 📖 **Architecture & Interview Guide**: For the complete narrative journey, technical evolution, and interview preparation masterclass, see **[PROJECT_STORY_AND_ARCHITECTURE.md](PROJECT_STORY_AND_ARCHITECTURE.md)**.
+> 📖 **Architecture & Interview Guide**: For the complete narrative journey, technical evolution, and interview preparation masterclass, see **[docs/PROJECT_STORY_AND_ARCHITECTURE.md](docs/PROJECT_STORY_AND_ARCHITECTURE.md)**. For Windows build instructions, see **[docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md)**.
 
 ### ✨ Advanced Enterprise Capabilities
 - **Layer-7 NIDS Engine ($O(N)$)**: Compiled Aho-Corasick multi-pattern Trie automaton matching SQLi, RCE, Webshells, and Directory Traversal.
@@ -154,31 +154,62 @@ TLS Client Hello:
 ## 4. File Structure
 
 ```
-packet_analyzer/
-├── include/                    # Header files (declarations)
-│   ├── pcap_reader.h          # PCAP file reading
-│   ├── packet_parser.h        # Network protocol parsing
-│   ├── sni_extractor.h        # TLS/HTTP inspection
-│   ├── types.h                # Data structures (FiveTuple, AppType, etc.)
-│   ├── rule_manager.h         # Blocking rules (multi-threaded version)
-│   ├── connection_tracker.h   # Flow tracking (multi-threaded version)
-│   ├── load_balancer.h        # LB thread (multi-threaded version)
-│   ├── fast_path.h            # FP thread (multi-threaded version)
-│   ├── thread_safe_queue.h    # Thread-safe queue
-│   └── dpi_engine.h           # Main orchestrator
+Deep-Packet-Analyzer/
+├── CMakeLists.txt                       # CMake build system (engine, analyzer, tests)
+├── README.md                            # Project overview & documentation
+├── .gitignore                           # Excludes build artifacts & temporary outputs
 │
-├── src/                        # Implementation files
-│   ├── pcap_reader.cpp        # PCAP file handling
-│   ├── packet_parser.cpp      # Protocol parsing
-│   ├── sni_extractor.cpp      # SNI/Host extraction
-│   ├── types.cpp              # Helper functions
-│   ├── main_working.cpp       # ★ SIMPLE VERSION ★
-│   ├── dpi_mt.cpp             # ★ MULTI-THREADED VERSION ★
-│   └── [other files]          # Supporting code
+├── include/                             # Modular C++17 Header Files
+│   ├── core/                            # Core engine, threading & flow management
+│   │   ├── dpi_engine.h                 # Main DPI engine orchestrator
+│   │   ├── load_balancer.h              # Symmetric 5-tuple consistent hashing LB
+│   │   ├── fast_path.h                  # Lock-free per-core worker threads
+│   │   ├── connection_tracker.h         # Per-flow state & global aggregation
+│   │   ├── thread_safe_queue.h          # Bounded condition-variable queue
+│   │   ├── types.h                      # FiveTuple, AppType, MicroTokenBucket
+│   │   └── platform.h                   # Cross-platform endianness helpers
+│   ├── protocol/                        # Binary wire parsing & L7 extraction
+│   │   ├── pcap_reader.h                # Zero-dependency PCAP stream reader
+│   │   ├── packet_parser.h              # L2–L4 parser (Ethernet, IPv4/v6, TCP/UDP)
+│   │   └── sni_extractor.h              # TLS 1.3 / QUIC SNI, HTTP Host & DNS extractor
+│   ├── security/                        # NIDS & Cyber-Threat Intelligence
+│   │   ├── aho_corasick.h               # O(N) compiled multi-pattern Trie automaton
+│   │   ├── security_analyzer.h          # Shannon Entropy DGA, DNS tunnel & p0f OS profiler
+│   │   └── rule_manager.h               # IP/CIDR, App, Domain, Port & L7 policy rules
+│   ├── traffic/                         # Distributed ingestion, QoS & storage sharding
+│   │   ├── traffic_orchestrator.h       # K-way Min-Heap chronological multi-host merge
+│   │   ├── traffic_shaper.h             # Token Bucket & Leaky Bucket QoS pacing
+│   │   └── multiqueue_pcap_writer.h     # Multi-Queue PCAP sharded storage sink
+│   └── ui/                              # Real-time observability
+│       └── tui_dashboard.h              # Live ANSI Cyber-Ops TUI Dashboard
 │
-├── generate_test_pcap.py      # Creates test data
-├── test_dpi.pcap              # Sample capture with various traffic
-└── README.md                  # This file!
+├── src/                                 # Modular C++17 Implementation Files
+│   ├── app/                             # CLI Executables (main_dpi.cpp, main.cpp)
+│   ├── core/                            # Core engine implementations
+│   ├── protocol/                        # Protocol parser implementations
+│   ├── security/                        # Security intelligence & NIDS implementations
+│   ├── traffic/                         # Traffic orchestration & storage implementations
+│   └── ui/                              # TUI dashboard renderer
+│
+├── tests/                               # Automated Unit Test Suite
+│   └── test_main.cpp                    # 20 comprehensive tests (CTest integrated)
+│
+├── scripts/                             # Utility & Traffic Generation Scripts
+│   └── generate_test_pcap.py            # Generates synthetic PCAPs (TLS, QUIC, NIDS, DGA)
+│
+├── data/                                # Sample PCAP Capture Fixtures
+│   ├── test_dpi.pcap                    # Rich traffic mix (IPv4/v6, QUIC, SQLi, RCE, DGA)
+│   ├── host1.pcap                       # Streaming & social media probe capture
+│   └── host2.pcap                       # Enterprise & AI traffic probe capture
+│
+├── examples/                            # Standalone Educational Prototypes
+│   ├── main_simple.cpp                  # Minimal single-threaded prototype
+│   ├── main_working.cpp                 # Simplified single-threaded flow tracker
+│   └── dpi_mt.cpp                       # Standalone multi-threaded prototype
+│
+└── docs/                                # In-Depth Documentation
+    ├── PROJECT_STORY_AND_ARCHITECTURE.md # Project evolution, architecture & interview guide
+    └── WINDOWS_SETUP.md                 # Windows build & setup instructions
 ```
 
 ---
@@ -874,59 +905,66 @@ Connection to YouTube:
 
 ### Prerequisites
 
-- **macOS/Linux** with C++17 compiler
-- **g++** or **clang++**
-- No external libraries needed!
+- **macOS/Linux/Windows** with a C++17 compiler (`g++`, `clang++`, or MSVC)
+- **CMake 3.16+**
+- Zero external runtime dependencies!
 
-### Build Commands
+### Build with CMake (Recommended)
 
-**Simple Version:**
 ```bash
-g++ -std=c++17 -O2 -I include -o dpi_simple \
-    src/main_working.cpp \
-    src/pcap_reader.cpp \
-    src/packet_parser.cpp \
-    src/sni_extractor.cpp \
-    src/types.cpp
+mkdir -p build && cd build
+cmake ..
+make -j
+ctest --output-on-failure   # Runs all 20 automated unit tests
 ```
 
-**Multi-threaded Version:**
-```bash
-g++ -std=c++17 -pthread -O2 -I include -o dpi_engine \
-    src/dpi_mt.cpp \
-    src/pcap_reader.cpp \
-    src/packet_parser.cpp \
-    src/sni_extractor.cpp \
-    src/types.cpp
-```
-
-### Running
+### Running the Engine
 
 **Basic usage:**
 ```bash
-./dpi_engine test_dpi.pcap output.pcap
+./build/dpi_engine data/test_dpi.pcap output.pcap
 ```
 
-**With blocking:**
+**Full Cyber-Ops NIDS + Threat Intelligence + Live ANSI TUI Dashboard:**
 ```bash
-./dpi_engine test_dpi.pcap output.pcap \
+./build/dpi_engine data/test_dpi.pcap output.pcap \
+    --enable-nids \
+    --enable-security-intel \
+    --tui
+```
+
+**Multi-Host Orchestration + Multi-Queue Storage Sharding + Per-Flow Micro-Quotas:**
+```bash
+./build/dpi_engine --inputs data/host1.pcap data/host2.pcap -o out_sharded.pcap \
+    --enable-nids \
+    --enable-security-intel \
+    --flow-limit-kbps 500 \
+    --app-flow-limit YouTube:200 \
+    --out-shards 2 \
+    --tui \
+    --export-json report.json
+```
+
+**With explicit policy blocking:**
+```bash
+./build/dpi_engine data/test_dpi.pcap output.pcap \
     --block-app YouTube \
     --block-app TikTok \
     --block-ip 192.168.1.50 \
     --block-domain facebook
 ```
 
-**Configure threads (multi-threaded only):**
+**Configure worker thread pool:**
 ```bash
-./dpi_engine input.pcap output.pcap --lbs 4 --fps 4
+./build/dpi_engine data/test_dpi.pcap output.pcap --lbs 4 --fps 4
 # Creates 4 LB threads × 4 FP threads = 16 processing threads
 ```
 
-### Creating Test Data
+### Regenerating Sample PCAP Data
 
 ```bash
-python3 generate_test_pcap.py
-# Creates test_dpi.pcap with sample traffic
+python3 scripts/generate_test_pcap.py
+# Generates data/test_dpi.pcap, data/host1.pcap, and data/host2.pcap
 ```
 
 ---

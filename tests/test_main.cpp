@@ -5,19 +5,19 @@
 #include <memory>
 #include <chrono>
 
-#include "types.h"
-#include "packet_parser.h"
-#include "sni_extractor.h"
-#include "rule_manager.h"
-#include "connection_tracker.h"
-#include "load_balancer.h"
-#include "fast_path.h"
-#include "traffic_shaper.h"
-#include "traffic_orchestrator.h"
-#include "multiqueue_pcap_writer.h"
-#include "aho_corasick.h"
-#include "security_analyzer.h"
-#include "tui_dashboard.h"
+#include "core/types.h"
+#include "protocol/packet_parser.h"
+#include "protocol/sni_extractor.h"
+#include "security/rule_manager.h"
+#include "core/connection_tracker.h"
+#include "core/load_balancer.h"
+#include "core/fast_path.h"
+#include "traffic/traffic_shaper.h"
+#include "traffic/traffic_orchestrator.h"
+#include "traffic/multiqueue_pcap_writer.h"
+#include "security/aho_corasick.h"
+#include "security/security_analyzer.h"
+#include "ui/tui_dashboard.h"
 #include <fstream>
 #include <cstdio>
 

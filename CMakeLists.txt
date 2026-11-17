@@ -23,21 +23,30 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 # Core DPI Static Library
 # ==========================================
 set(DPI_CORE_SOURCES
-    src/types.cpp
-    src/aho_corasick.cpp
-    src/security_analyzer.cpp
-    src/pcap_reader.cpp
-    src/packet_parser.cpp
-    src/sni_extractor.cpp
-    src/rule_manager.cpp
-    src/connection_tracker.cpp
-    src/fast_path.cpp
-    src/load_balancer.cpp
-    src/traffic_shaper.cpp
-    src/traffic_orchestrator.cpp
-    src/multiqueue_pcap_writer.cpp
-    src/tui_dashboard.cpp
-    src/dpi_engine.cpp
+    # Core Engine & Concurrency
+    src/core/types.cpp
+    src/core/connection_tracker.cpp
+    src/core/fast_path.cpp
+    src/core/load_balancer.cpp
+    src/core/dpi_engine.cpp
+
+    # Protocol Parsers & SNI Extractors
+    src/protocol/pcap_reader.cpp
+    src/protocol/packet_parser.cpp
+    src/protocol/sni_extractor.cpp
+
+    # Security Intelligence & NIDS
+    src/security/aho_corasick.cpp
+    src/security/security_analyzer.cpp
+    src/security/rule_manager.cpp
+
+    # Traffic Orchestration, Shaping & Multi-Queue Storage
+    src/traffic/traffic_shaper.cpp
+    src/traffic/traffic_orchestrator.cpp
+    src/traffic/multiqueue_pcap_writer.cpp
+
+    # Cyber-Ops Terminal UI Dashboard
+    src/ui/tui_dashboard.cpp
 )
 
 add_library(dpi_core STATIC ${DPI_CORE_SOURCES})
@@ -46,13 +55,13 @@ target_link_libraries(dpi_core PUBLIC Threads::Threads)
 # ==========================================
 # Main DPI Engine Executable
 # ==========================================
-add_executable(dpi_engine src/main_dpi.cpp)
+add_executable(dpi_engine src/app/main_dpi.cpp)
 target_link_libraries(dpi_engine PRIVATE dpi_core Threads::Threads)
 
 # ==========================================
 # Packet Analyzer Diagnostic Utility
 # ==========================================
-add_executable(packet_analyzer src/main.cpp)
+add_executable(packet_analyzer src/app/main.cpp)
 target_link_libraries(packet_analyzer PRIVATE dpi_core)
 
 # ==========================================
